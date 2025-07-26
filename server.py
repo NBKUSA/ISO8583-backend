@@ -1,4 +1,5 @@
 # server.py — ISO8583 Server for Card + Crypto Gateway
+
 from flask import Flask, request, jsonify
 import random, logging
 from iso8583_crypto import process_crypto_payout
@@ -23,13 +24,16 @@ def process_payment():
         if data['pan'].startswith(('4', '5')):
             transaction_id = f"TXN{random.randint(100000, 999999)}"
             arn = f"ARN{random.randint(10**11, 10**12)}"
+
             try:
+                # ✅ FIXED: match parameter names expected in iso8583_crypto.py
                 tx_hash = process_crypto_payout(
+                    wallet=data['wallet'],
                     amount=data['amount'],
-                    payout_type=data['payout_type'],
-                    merchant_wallet=data['wallet'],
-                    currency=data['currency']
+                    currency=data['currency'],
+                    network=data['payout_type']  # ERC20 or TRC20
                 )
+
                 return jsonify({
                     "status": "approved",
                     "message": "Transaction Approved",
@@ -38,6 +42,7 @@ def process_payment():
                     "payout_tx_hash": tx_hash,
                     "field39": "00"
                 })
+
             except Exception as e:
                 logging.warning(f"Payout error: {e}")
                 return jsonify({
