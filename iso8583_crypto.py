@@ -3,6 +3,7 @@
 import os
 from web3 import Web3
 from tronpy import Tron
+from tronpy.providers import HTTPProvider
 from tronpy.keys import PrivateKey
 
 def process_crypto_payout(wallet, amount, currency, network):
@@ -54,7 +55,10 @@ def send_tron(to_address, amount):
     if not all([tron_private_key, token_contract]):
         raise Exception("Missing TRC20 environment variables.")
 
-    client = Tron(network="mainnet")
+    # Use TronGrid with API key
+    client = Tron(provider=HTTPProvider(api_key="90556144-eb12-4d28-be5f-24368bb813ff"), network="mainnet")
+
+    # Load private key
     pk = PrivateKey(bytes.fromhex(tron_private_key))
     contract = client.get_contract(token_contract)
 
