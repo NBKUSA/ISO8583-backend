@@ -6,6 +6,7 @@ from tronpy import Tron
 from tronpy.providers import HTTPProvider
 from tronpy.keys import PrivateKey
 
+
 def process_crypto_payout(wallet, amount, currency, network):
     if network.upper() == "TRC20":
         return send_tron(wallet, amount)
@@ -13,6 +14,7 @@ def process_crypto_payout(wallet, amount, currency, network):
         return send_erc20(wallet, amount)
     else:
         raise Exception("Unsupported payout type")
+
 
 def send_erc20(to_address, amount):
     infura_url = os.getenv("INFURA_URL")
@@ -29,24 +31,23 @@ def send_erc20(to_address, amount):
     to_address = web3.to_checksum_address(to_address)
     token_address = web3.to_checksum_address(token_address)
 
-    # Load contract
     contract = web3.eth.contract(address=token_address, abi=erc20_abi())
 
-    # Prepare transfer
     decimals = contract.functions.decimals().call()
     amt = int(float(amount) * (10 ** decimals))
-    nonce = web3.eth.getTransactionCount(account.address)
+    nonce = web3.eth.get_transaction_count(account.address)
 
     tx = contract.functions.transfer(to_address, amt).build_transaction({
         'chainId': 1 if "mainnet" in infura_url else 5,
         'gas': 60000,
         'gasPrice': web3.eth.gas_price,
-        'nonce': nonce
+        'nonce': nonce,
     })
 
     signed_tx = web3.eth.account.sign_transaction(tx, private_key)
     tx_hash = web3.eth.send_raw_transaction(signed_tx.rawTransaction)
     return web3.to_hex(tx_hash)
+
 
 def send_tron(to_address, amount):
     tron_private_key = os.getenv("TRC20_PRIVATE_KEY")
@@ -55,14 +56,15 @@ def send_tron(to_address, amount):
     if not all([tron_private_key, token_contract]):
         raise Exception("Missing TRC20 environment variables.")
 
-    # Use TronGrid with API key
-    client = Tron(provider=HTTPProvider(api_key="90556144-eb12-4d28-be5f-24368bb813ff"), network="mainnet")
+    client = Tron(
+        provider=HTTPProvider(api_key="90556144-eb12-4d28-be5f-24368bb813ff"),
+        network="mainnet"
+    )
 
-    # Load private key
     pk = PrivateKey(bytes.fromhex(tron_private_key))
     contract = client.get_contract(token_contract)
 
-    decimals = contract.functions.decimals()
+    decimals = contract.functions.decimals().call()  # FIXED HERE
     amt = int(float(amount) * (10 ** decimals))
 
     txn = (
@@ -74,7 +76,8 @@ def send_tron(to_address, amount):
     )
 
     result = txn.broadcast()
-    return result['txid']
+    return result["txid"]
+
 
 def erc20_abi():
     return [
