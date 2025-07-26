@@ -18,17 +18,25 @@ def send_erc20(to_address, amount):
     private_key = os.getenv("ERC20_PRIVATE_KEY")
     token_address = os.getenv("ERC20_CONTRACT_ADDRESS")
 
+    if not all([infura_url, private_key, token_address]):
+        raise Exception("Missing ERC20 environment variables.")
+
     web3 = Web3(Web3.HTTPProvider(infura_url))
     account = web3.eth.account.from_key(private_key)
-    contract = web3.eth.contract(address=Web3.toChecksumAddress(token_address), abi=erc20_abi())
-    
+
+    # Convert to checksum addresses
+    to_address = web3.to_checksum_address(to_address)
+    token_address = web3.to_checksum_address(token_address)
+
+    # Load contract
+    contract = web3.eth.contract(address=token_address, abi=erc20_abi())
+
+    # Prepare transfer
     decimals = contract.functions.decimals().call()
     amt = int(float(amount) * (10 ** decimals))
     nonce = web3.eth.getTransactionCount(account.address)
 
-    tx = contract.functions.transfer(
-        Web3.toChecksumAddress(to_address), amt
-    ).buildTransaction({
+    tx = contract.functions.transfer(to_address, amt).build_transaction({
         'chainId': 1 if "mainnet" in infura_url else 5,
         'gas': 60000,
         'gasPrice': web3.eth.gas_price,
@@ -36,16 +44,20 @@ def send_erc20(to_address, amount):
     })
 
     signed_tx = web3.eth.account.sign_transaction(tx, private_key)
-    tx_hash = web3.eth.sendRawTransaction(signed_tx.rawTransaction)
-    return web3.toHex(tx_hash)
+    tx_hash = web3.eth.send_raw_transaction(signed_tx.rawTransaction)
+    return web3.to_hex(tx_hash)
 
 def send_tron(to_address, amount):
     tron_private_key = os.getenv("TRC20_PRIVATE_KEY")
     token_contract = os.getenv("TRC20_CONTRACT_ADDRESS")
+
+    if not all([tron_private_key, token_contract]):
+        raise Exception("Missing TRC20 environment variables.")
+
     client = Tron(network="mainnet")
     pk = PrivateKey(bytes.fromhex(tron_private_key))
-
     contract = client.get_contract(token_contract)
+
     decimals = contract.functions.decimals()
     amt = int(float(amount) * (10 ** decimals))
 
@@ -62,6 +74,21 @@ def send_tron(to_address, amount):
 
 def erc20_abi():
     return [
-        {"constant":False,"inputs":[{"name":"_to","type":"address"},{"name":"_value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"type":"function"},
-        {"constant":True,"inputs":[],"name":"decimals","outputs":[{"name":"","type":"uint8"}],"type":"function"}
+        {
+            "constant": False,
+            "inputs": [
+                {"name": "_to", "type": "address"},
+                {"name": "_value", "type": "uint256"}
+            ],
+            "name": "transfer",
+            "outputs": [{"name": "", "type": "bool"}],
+            "type": "function"
+        },
+        {
+            "constant": True,
+            "inputs": [],
+            "name": "decimals",
+            "outputs": [{"name": "", "type": "uint8"}],
+            "type": "function"
+        }
     ]
