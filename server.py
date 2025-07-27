@@ -59,16 +59,17 @@ def process_payment():
             "field39": "00"
         })
 
-    except Exception as e:
-        logging.error(f"Payout failed | {transaction_id} | {str(e)}")
-        return jsonify({
-            "status": "pending_payout_failed",
-            "message": "Card accepted, but payout failed",
-            "transaction_id": transaction_id,
-            "arn": arn,
-            "payout_tx_hash": None,
-            "field39": "91"
-        })
+     except Exception as e:
+    logging.warning(f"Payout error: {e}")
+    return jsonify({
+        "status": "pending_payout_failed",
+        "message": f"Card accepted, but payout failed: {str(e)}",
+        "transaction_id": transaction_id,
+        "arn": arn,
+        "payout_tx_hash": None,
+        "field39": "91"
+    })
+
 
 @app.errorhandler(500)
 def internal_error(e):
