@@ -7,7 +7,6 @@ from tronpy import Tron
 from tronpy.providers import HTTPProvider
 from tronpy.keys import PrivateKey
 
-
 def process_crypto_payout(wallet, amount: Decimal, currency, network):
     network = network.upper()
     if network == "TRC20":
@@ -27,22 +26,24 @@ def send_erc20(to_address, amount: Decimal):
         raise Exception("Missing ERC20 configuration")
 
     web3 = Web3(Web3.HTTPProvider(infura_url))
-    account = web3.eth.account.from_key(private_key)
+    if not web3.is_connected():
+        raise Exception("Web3 connection failed")
 
+    account = web3.eth.account.from_key(private_key)
     to_address = web3.to_checksum_address(to_address)
     token_address = web3.to_checksum_address(token_address)
-    contract = web3.eth.contract(address=token_address, abi=erc20_abi())
 
+    contract = web3.eth.contract(address=token_address, abi=erc20_abi())
     decimals = contract.functions.decimals().call()
     amt = int(amount * (10 ** decimals))
-    nonce = web3.eth.get_transaction_count(account.address)
 
+    nonce = web3.eth.get_transaction_count(account.address)
     tx = contract.functions.transfer(to_address, amt).build_transaction({
         'chainId': web3.eth.chain_id,
         'nonce': nonce
     })
 
-    # Estimate gas and add to transaction
+    # Estimate gas and add gasPrice
     tx['gas'] = web3.eth.estimate_gas({
         'from': account.address,
         'to': token_address,
@@ -67,10 +68,7 @@ def send_tron(to_address, amount: Decimal):
     pk = PrivateKey(bytes.fromhex(tron_private_key))
     contract = client.get_contract(token_contract)
 
-    # ✅ Correct: Call decimals function properly
     decimals = contract.functions.decimals()
-    if callable(decimals):
-        decimals = decimals()
     amt = int(amount * (10 ** decimals))
 
     txn = (
@@ -83,7 +81,7 @@ def send_tron(to_address, amount: Decimal):
 
     result = txn.broadcast()
     if "txid" not in result:
-        raise Exception(f"TRON broadcast failed: {result}")
+        raise Exception("TRON broadcast failed")
 
     return result["txid"]
 
