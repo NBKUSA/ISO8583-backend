@@ -1,9 +1,11 @@
 # server.py — ISO8583 Server for Card + Crypto Gateway
 
 from flask import Flask, request, jsonify
-from decimal import Decimal
-import random, logging, uuid
+import random, logging
+import uuid
 from iso8583_crypto import process_crypto_payout
+from web3 import Web3
+from tronpy.keys import is_base58check_address
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -25,53 +27,73 @@ def process_payment():
                     "field39": "99"
                 })
 
-        # Accept Visa, MasterCard, and Amex (starts with 4, 5, or 3)
-        if data['pan'].startswith(('4', '5', '3')):
-            transaction_id = str(uuid.uuid4())
-            arn = f"ARN{random.randint(10**11, 10**12)}"
+        # Card type check — Visa, MasterCard, Amex
+        if not data['pan'].startswith(('4', '5', '3')):
+            return jsonify({
+                "status": "rejected",
+                "message": "Card not supported (not Visa/MasterCard/Amex)",
+                "field39": "05"
+            })
 
-            try:
-                # ✅ Critical fix: Convert amount to Decimal once
-                amount = Decimal(str(data['amount']))
+        transaction_id = str(uuid.uuid4())
+        arn = f"ARN{random.randint(10**11, 10**12)}"
+        wallet = data['wallet']
+        payout_type = data['payout_type'].upper()
 
-                tx_hash = process_crypto_payout(
-                    wallet=data['wallet'],
-                    amount=amount,
-                    currency=data['currency'],
-                    network=data['payout_type']
-                )
-
+        # ✅ Validate wallet format
+        if payout_type == 'ERC20':
+            if not Web3.is_address(wallet):
                 return jsonify({
-                    "status": "approved",
-                    "message": "Transaction Approved",
-                    "transaction_id": transaction_id,
-                    "arn": arn,
-                    "payout_tx_hash": tx_hash,
-                    "field39": "00"
+                    "status": "rejected",
+                    "message": "Invalid Ethereum wallet address",
+                    "field39": "99"
                 })
-
-            except Exception as e:
-                logging.warning(f"Payout error: {e}")
+        elif payout_type == 'TRC20':
+            if not is_base58check_address(wallet):
                 return jsonify({
-                    "status": "pending_payout_failed",
-                    "message": f"Card accepted, but payout failed: {str(e)}",
-                    "transaction_id": transaction_id,
-                    "arn": arn,
-                    "payout_tx_hash": None,
-                    "field39": "91"
+                    "status": "rejected",
+                    "message": "Invalid TRON wallet address",
+                    "field39": "99"
                 })
+        else:
+            return jsonify({
+                "status": "rejected",
+                "message": "Unsupported payout network",
+                "field39": "12"
+            })
 
-        return jsonify({
-            "status": "rejected",
-            "message": "Card not supported (not Visa/MasterCard/Amex)",
-            "field39": "05"
-        })
+        # ✅ Attempt crypto payout
+        try:
+            tx_hash = process_crypto_payout(
+                wallet=wallet,
+                amount=data['amount'],
+                currency=data['currency'],
+                network=payout_type
+            )
+            return jsonify({
+                "status": "approved",
+                "message": "Transaction Approved",
+                "transaction_id": transaction_id,
+                "arn": arn,
+                "payout_tx_hash": tx_hash,
+                "field39": "00"
+            })
+        except Exception as e:
+            logging.warning(f"Payout error: {e}")
+            return jsonify({
+                "status": "pending_payout_failed",
+                "message": f"Card accepted, but payout failed: {str(e)}",
+                "transaction_id": transaction_id,
+                "arn": arn,
+                "payout_tx_hash": None,
+                "field39": "91"
+            })
 
     except Exception as ex:
-        logging.exception("Error processing payment")
+        logging.exception("Unexpected server error")
         return jsonify({
             "status": "rejected",
-            "message": str(ex),
+            "message": f"Unexpected error: {str(ex)}",
             "field39": "99"
         })
 
