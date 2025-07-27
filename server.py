@@ -1,17 +1,12 @@
-# server.py — ISO8583 Crypto Gateway Server (Render Deployment Ready)
+# server.py — ISO8583 Server for Card + Crypto Gateway
 
 from flask import Flask, request, jsonify
-from decimal import Decimal, InvalidOperation
+import random, logging
+import uuid
 from iso8583_crypto import process_crypto_payout
-import logging, random, uuid, os
 
 app = Flask(__name__)
-
-# Setup production-grade logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s'
-)
+logging.basicConfig(level=logging.INFO)
 
 @app.route('/')
 def home():
@@ -19,28 +14,17 @@ def home():
 
 @app.route('/process_payment', methods=['POST'])
 def process_payment():
-    data = request.get_json(silent=True)
-    required = ['pan', 'expiry', 'cvv', 'amount', 'currency', 'wallet', 'payout_type']
-
-    # Check required fields
-    for field in required:
-        if field not in data:
-            return iso8583_response("99", f"Missing field: {field}", status="rejected")
-
-    # Accept Visa (4), MasterCard (5), Amex (3)
-    if not data['pan'].startswith(('3', '4', '5')):
-        return iso8583_response("05", "Unsupported card type", status="rejected")
-
-    # Validate amount
     try:
-        amount = Decimal(str(data['amount']))
-        if amount <= 0:
-            raise InvalidOperation
-    except (InvalidOperation, ValueError):
-        return iso8583_response("13", "Invalid amount", status="rejected")
+        data = request.get_json()
+        required = ['pan', 'expiry', 'cvv', 'amount', 'currency', 'wallet', 'payout_type']
+        for f in required:
+            if f not in data:
+                return jsonify({"status": "rejected", "message": f"Missing field: {f}", "field39": "99"})
 
-    transaction_id = str(uuid.uuid4())
-    arn = f"ARN{random.randint(10**11, 10**12)}"
+        # Accept Visa, MasterCard, and Amex (starts with 4, 5, or 3)
+        if data['pan'].startswith(('4', '5', '3')):
+            transaction_id = str(uuid.uuid4())
+            arn = f"ARN{random.randint(10**11, 10**12)}"
 
             try:
                 tx_hash = process_crypto_payout(
@@ -68,18 +52,17 @@ def process_payment():
                     "field39": "91"
                 })
 
-@app.errorhandler(500)
-def internal_error(e):
-    logging.exception("Server error")
-    return iso8583_response("96", "System error", status="rejected")
+        return jsonify({
+            "status": "rejected",
+            "message": "Card not supported (not Visa/MasterCard/Amex)",
+            "field39": "05"
+        })
 
-def iso8583_response(field39, message, status="rejected"):
-    return jsonify({
-        "status": status,
-        "message": message,
-        "field39": field39
-    }), 400
+    except Exception as ex:
+        logging.exception("Error processing payment")
+        return jsonify({"status": "rejected", "message": str(ex), "field39": "99"})
+
 
 if __name__ == '__main__':
     from waitress import serve
-    serve(app, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    serve(app, host='0.0.0.0', port=5000)
