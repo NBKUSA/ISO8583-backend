@@ -7,8 +7,11 @@ from tronpy import Tron
 from tronpy.providers import HTTPProvider
 from tronpy.keys import PrivateKey
 
-def process_crypto_payout(wallet, amount: Decimal, currency, network):
+def process_crypto_payout(wallet: str, amount, currency: str, network: str):
+    """Route payout to the correct blockchain"""
+    amount = Decimal(str(amount))
     network = network.upper()
+
     if network == "TRC20":
         return send_tron(wallet, amount)
     elif network == "ERC20":
@@ -16,8 +19,7 @@ def process_crypto_payout(wallet, amount: Decimal, currency, network):
     else:
         raise Exception("Unsupported payout network")
 
-
-def send_erc20(to_address, amount: Decimal):
+def send_erc20(to_address: str, amount: Decimal):
     infura_url = os.getenv("INFURA_URL")
     private_key = os.getenv("ERC20_PRIVATE_KEY")
     token_address = os.getenv("ERC20_CONTRACT_ADDRESS")
@@ -26,37 +28,38 @@ def send_erc20(to_address, amount: Decimal):
         raise Exception("Missing ERC20 configuration")
 
     web3 = Web3(Web3.HTTPProvider(infura_url))
-    if not web3.is_connected():
-        raise Exception("Web3 connection failed")
+    if not Web3.is_address(to_address):
+        raise Exception("Invalid Ethereum wallet address")
 
     account = web3.eth.account.from_key(private_key)
-    to_address = web3.to_checksum_address(to_address)
     token_address = web3.to_checksum_address(token_address)
+    to_address = web3.to_checksum_address(to_address)
 
     contract = web3.eth.contract(address=token_address, abi=erc20_abi())
     decimals = contract.functions.decimals().call()
-    amt = int(amount * (10 ** decimals))
-
+    amt = int(amount * Decimal(10 ** decimals))
     nonce = web3.eth.get_transaction_count(account.address)
+
     tx = contract.functions.transfer(to_address, amt).build_transaction({
         'chainId': web3.eth.chain_id,
-        'nonce': nonce
+        'gas': 0,  # placeholder, will be overwritten
+        'gasPrice': web3.eth.gas_price,
+        'nonce': nonce,
     })
 
-    # Estimate gas and add gasPrice
-    tx['gas'] = web3.eth.estimate_gas({
+    # Estimate gas
+    gas_estimate = web3.eth.estimate_gas({
         'from': account.address,
         'to': token_address,
         'data': tx['data']
     })
-    tx['gasPrice'] = web3.eth.gas_price
+    tx['gas'] = gas_estimate
 
     signed_tx = web3.eth.account.sign_transaction(tx, private_key)
     tx_hash = web3.eth.send_raw_transaction(signed_tx.rawTransaction)
     return web3.to_hex(tx_hash)
 
-
-def send_tron(to_address, amount: Decimal):
+def send_tron(to_address: str, amount: Decimal):
     tron_private_key = os.getenv("TRC20_PRIVATE_KEY")
     token_contract = os.getenv("TRC20_CONTRACT_ADDRESS")
     tron_api_key = os.getenv("TRON_API_KEY")
@@ -69,7 +72,7 @@ def send_tron(to_address, amount: Decimal):
     contract = client.get_contract(token_contract)
 
     decimals = contract.functions.decimals()
-    amt = int(amount * (10 ** decimals))
+    amt = int(amount * Decimal(10 ** decimals))
 
     txn = (
         contract.functions.transfer(to_address, amt)
@@ -85,12 +88,14 @@ def send_tron(to_address, amount: Decimal):
 
     return result["txid"]
 
-
 def erc20_abi():
     return [
         {
             "constant": False,
-            "inputs": [{"name": "_to", "type": "address"}, {"name": "_value", "type": "uint256"}],
+            "inputs": [
+                {"name": "_to", "type": "address"},
+                {"name": "_value", "type": "uint256"}
+            ],
             "name": "transfer",
             "outputs": [{"name": "", "type": "bool"}],
             "type": "function"
