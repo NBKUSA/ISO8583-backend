@@ -7,23 +7,14 @@ from tronpy import Tron
 from tronpy.providers import HTTPProvider
 from tronpy.keys import PrivateKey
 
-
 def process_crypto_payout(wallet: str, amount: Decimal, currency: str, network: str) -> str:
     network = network.upper()
-
-    # Optional: Validate wallet format
-    if network == "ERC20" and not wallet.startswith("0x"):
-        raise Exception("Invalid Ethereum wallet address")
-    if network == "TRC20" and not wallet.startswith("T"):
-        raise Exception("Invalid TRON wallet address")
-
     if network == "TRC20":
         return send_tron(wallet, amount)
     elif network == "ERC20":
         return send_erc20(wallet, amount)
     else:
         raise Exception("Unsupported payout network")
-
 
 def send_erc20(to_address: str, amount: Decimal) -> str:
     infura_url = os.getenv("INFURA_URL")
@@ -43,7 +34,7 @@ def send_erc20(to_address: str, amount: Decimal) -> str:
 
     contract = web3.eth.contract(address=token_address, abi=erc20_abi())
     decimals = contract.functions.decimals().call()
-    amt = int(Decimal(str(amount)) * (10 ** decimals))
+    amt = int(amount * (10 ** decimals))
 
     nonce = web3.eth.get_transaction_count(account.address)
     tx = contract.functions.transfer(to_address, amt).build_transaction({
@@ -58,7 +49,6 @@ def send_erc20(to_address: str, amount: Decimal) -> str:
 
     return web3.to_hex(tx_hash)
 
-
 def send_tron(to_address: str, amount: Decimal) -> str:
     tron_private_key = os.getenv("TRC20_PRIVATE_KEY")
     token_contract = os.getenv("TRC20_CONTRACT_ADDRESS")
@@ -71,8 +61,9 @@ def send_tron(to_address: str, amount: Decimal) -> str:
     pk = PrivateKey(bytes.fromhex(tron_private_key))
     contract = client.get_contract(token_contract)
 
+    # ✅ Fix: Call the decimals method
     decimals = contract.functions.decimals().call()
-    amt = int(Decimal(str(amount)) * (10 ** decimals))
+    amt = int(amount * (10 ** decimals))
 
     txn = (
         contract.functions.transfer(to_address, amt)
@@ -83,11 +74,10 @@ def send_tron(to_address: str, amount: Decimal) -> str:
     )
 
     result = txn.broadcast()
-    if not result.get("result") or "txid" not in result:
+    if "txid" not in result:
         raise Exception(f"TRON broadcast failed: {result}")
 
     return result["txid"]
-
 
 def erc20_abi():
     return [
