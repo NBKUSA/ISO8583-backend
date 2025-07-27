@@ -1,10 +1,17 @@
-# server.py — ISO8583 Server for Card + Crypto Gateway
+# server.py — ISO8583 Crypto Gateway Server (Render Deployment Ready)
+
 from flask import Flask, request, jsonify
-import random, logging
+from decimal import Decimal, InvalidOperation
 from iso8583_crypto import process_crypto_payout
+import logging, random, uuid, os
 
 app = Flask(__name__)
-logging.basicConfig(level=logging.INFO)
+
+# Setup production-grade logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s'
+)
 
 @app.route('/')
 def home():
@@ -12,52 +19,69 @@ def home():
 
 @app.route('/process_payment', methods=['POST'])
 def process_payment():
+    data = request.get_json(silent=True)
+    required = ['pan', 'expiry', 'cvv', 'amount', 'currency', 'wallet', 'payout_type']
+
+    # Check required fields
+    for field in required:
+        if field not in data:
+            return iso8583_response("99", f"Missing field: {field}", status="rejected")
+
+    # Accept Visa (4), MasterCard (5), Amex (3)
+    if not data['pan'].startswith(('3', '4', '5')):
+        return iso8583_response("05", "Unsupported card type", status="rejected")
+
+    # Validate amount
     try:
-        data = request.get_json()
-        required = ['pan', 'expiry', 'cvv', 'amount', 'currency', 'wallet', 'payout_type']
-        for f in required:
-            if f not in data:
-                return jsonify({"status": "rejected", "message": f"Missing field: {f}", "field39": "99"})
+        amount = Decimal(str(data['amount']))
+        if amount <= 0:
+            raise InvalidOperation
+    except (InvalidOperation, ValueError):
+        return iso8583_response("13", "Invalid amount", status="rejected")
 
-        # Accept only Visa/MasterCard simulation
-        if data['pan'].startswith(('4', '5')):
-            transaction_id = f"TXN{random.randint(100000, 999999)}"
-            arn = f"ARN{random.randint(10**11, 10**12)}"
-            try:
-                tx_hash = process_crypto_payout(
-                    wallet=data['wallet'],
-                    amount=data['amount'],
-                    currency=data['currency'],
-                    network=data['payout_type']
-                )
-                return jsonify({
-                    "status": "approved",
-                    "message": "Transaction Approved",
-                    "transaction_id": transaction_id,
-                    "arn": arn,
-                    "payout_tx_hash": tx_hash,
-                    "field39": "00"
-                })
-            except Exception as e:
-                logging.warning(f"Payout error: {e}")
-                return jsonify({
-                    "status": "approved_payout_failed",
-                    "message": str(e),
-                    "transaction_id": transaction_id,
-                    "arn": arn,
-                    "payout_tx_hash": None,
-                    "field39": "00"
-                })
+    transaction_id = str(uuid.uuid4())
+    arn = f"ARN{random.randint(10**11, 10**12)}"
 
+    try:
+        tx_hash = process_crypto_payout(
+            wallet=data['wallet'],
+            amount=amount,
+            currency=data['currency'],
+            network=data['payout_type']
+        )
+        logging.info(f"TX approved | {transaction_id} | {tx_hash}")
         return jsonify({
-            "status": "rejected",
-            "message": "Card not supported (non Visa/MasterCard)",
-            "field39": "05"
+            "status": "approved",
+            "message": "Transaction Approved",
+            "transaction_id": transaction_id,
+            "arn": arn,
+            "payout_tx_hash": tx_hash,
+            "field39": "00"
         })
 
-    except Exception as ex:
-        logging.exception("Error processing payment")
-        return jsonify({"status": "rejected", "message": str(ex), "field39": "99"})
+    except Exception as e:
+        logging.error(f"Payout failed | {transaction_id} | {str(e)}")
+        return jsonify({
+            "status": "pending_payout_failed",
+            "message": "Card accepted, but payout failed",
+            "transaction_id": transaction_id,
+            "arn": arn,
+            "payout_tx_hash": None,
+            "field39": "91"
+        })
+
+@app.errorhandler(500)
+def internal_error(e):
+    logging.exception("Server error")
+    return iso8583_response("96", "System error", status="rejected")
+
+def iso8583_response(field39, message, status="rejected"):
+    return jsonify({
+        "status": status,
+        "message": message,
+        "field39": field39
+    }), 400
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    from waitress import serve
+    serve(app, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
