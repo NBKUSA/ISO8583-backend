@@ -1,71 +1,71 @@
-# iso8583_crypto.py — Real Blockchain Payouts
+# iso8583_crypto.py — Blockchain Payout Processor (ERC20 / TRC20)
 
 import os
+from decimal import Decimal
 from web3 import Web3
 from tronpy import Tron
 from tronpy.providers import HTTPProvider
 from tronpy.keys import PrivateKey
 
-
-def process_crypto_payout(wallet, amount, currency, network):
-    if network.upper() == "TRC20":
+def process_crypto_payout(wallet, amount: Decimal, currency, network):
+    network = network.upper()
+    if network == "TRC20":
         return send_tron(wallet, amount)
-    elif network.upper() == "ERC20":
+    elif network == "ERC20":
         return send_erc20(wallet, amount)
     else:
-        raise Exception("Unsupported payout type")
+        raise Exception("Unsupported payout network")
 
-
-def send_erc20(to_address, amount):
+def send_erc20(to_address, amount: Decimal):
     infura_url = os.getenv("INFURA_URL")
     private_key = os.getenv("ERC20_PRIVATE_KEY")
     token_address = os.getenv("ERC20_CONTRACT_ADDRESS")
 
     if not all([infura_url, private_key, token_address]):
-        raise Exception("Missing ERC20 environment variables.")
+        raise Exception("Missing ERC20 configuration")
 
     web3 = Web3(Web3.HTTPProvider(infura_url))
     account = web3.eth.account.from_key(private_key)
 
-    # Convert to checksum addresses
     to_address = web3.to_checksum_address(to_address)
     token_address = web3.to_checksum_address(token_address)
-
     contract = web3.eth.contract(address=token_address, abi=erc20_abi())
 
     decimals = contract.functions.decimals().call()
-    amt = int(float(amount) * (10 ** decimals))
+    amt = int(amount * (10 ** decimals))
     nonce = web3.eth.get_transaction_count(account.address)
 
     tx = contract.functions.transfer(to_address, amt).build_transaction({
-        'chainId': 1 if "mainnet" in infura_url else 5,
-        'gas': 60000,
-        'gasPrice': web3.eth.gas_price,
-        'nonce': nonce,
+        'chainId': web3.eth.chain_id,
+        'nonce': nonce
     })
+
+    # Estimate gas and add to transaction
+    tx['gas'] = web3.eth.estimate_gas({
+        'from': account.address,
+        'to': token_address,
+        'data': tx['data']
+    })
+    tx['gasPrice'] = web3.eth.gas_price
 
     signed_tx = web3.eth.account.sign_transaction(tx, private_key)
     tx_hash = web3.eth.send_raw_transaction(signed_tx.rawTransaction)
     return web3.to_hex(tx_hash)
 
-
-def send_tron(to_address, amount):
+def send_tron(to_address, amount: Decimal):
     tron_private_key = os.getenv("TRC20_PRIVATE_KEY")
     token_contract = os.getenv("TRC20_CONTRACT_ADDRESS")
+    tron_api_key = os.getenv("TRON_API_KEY")
 
-    if not all([tron_private_key, token_contract]):
-        raise Exception("Missing TRC20 environment variables.")
+    if not all([tron_private_key, token_contract, tron_api_key]):
+        raise Exception("Missing TRC20 configuration")
 
-    client = Tron(
-        provider=HTTPProvider(api_key="90556144-eb12-4d28-be5f-24368bb813ff"),
-        network="mainnet"
-    )
-
+    client = Tron(provider=HTTPProvider(api_key=tron_api_key), network="mainnet")
     pk = PrivateKey(bytes.fromhex(tron_private_key))
     contract = client.get_contract(token_contract)
 
-    decimals = contract.functions.decimals()  # FIXED HERE
-    amt = int(float(amount) * (10 ** decimals))
+    decimals = contract.functions.decimals()
+    amt = int(amount * (10 ** decimals))
 
     txn = (
         contract.functions.transfer(to_address, amt)
@@ -76,17 +76,16 @@ def send_tron(to_address, amount):
     )
 
     result = txn.broadcast()
-    return result["txid"]
+    if "txid" not in result:
+        raise Exception("TRON broadcast failed")
 
+    return result["txid"]
 
 def erc20_abi():
     return [
         {
             "constant": False,
-            "inputs": [
-                {"name": "_to", "type": "address"},
-                {"name": "_value", "type": "uint256"}
-            ],
+            "inputs": [{"name": "_to", "type": "address"}, {"name": "_value", "type": "uint256"}],
             "name": "transfer",
             "outputs": [{"name": "", "type": "bool"}],
             "type": "function"
