@@ -42,34 +42,31 @@ def process_payment():
     transaction_id = str(uuid.uuid4())
     arn = f"ARN{random.randint(10**11, 10**12)}"
 
-    try:
-        tx_hash = process_crypto_payout(
-            wallet=data['wallet'],
-            amount=amount,
-            currency=data['currency'],
-            network=data['payout_type']
-        )
-        logging.info(f"TX approved | {transaction_id} | {tx_hash}")
-        return jsonify({
-            "status": "approved",
-            "message": "Transaction Approved",
-            "transaction_id": transaction_id,
-            "arn": arn,
-            "payout_tx_hash": tx_hash,
-            "field39": "00"
-        })
-
-     except Exception as e:
-    logging.warning(f"Payout error: {e}")
-    return jsonify({
-        "status": "pending_payout_failed",
-        "message": f"Card accepted, but payout failed: {str(e)}",
-        "transaction_id": transaction_id,
-        "arn": arn,
-        "payout_tx_hash": None,
-        "field39": "91"
-    })
-
+            try:
+                tx_hash = process_crypto_payout(
+                    wallet=data['wallet'],
+                    amount=data['amount'],
+                    currency=data['currency'],
+                    network=data['payout_type']
+                )
+                return jsonify({
+                    "status": "approved",
+                    "message": "Transaction Approved",
+                    "transaction_id": transaction_id,
+                    "arn": arn,
+                    "payout_tx_hash": tx_hash,
+                    "field39": "00"
+                })
+            except Exception as e:
+                logging.warning(f"Payout error: {e}")
+                return jsonify({
+                    "status": "pending_payout_failed",
+                    "message": f"Card accepted, but payout failed: {str(e)}",
+                    "transaction_id": transaction_id,
+                    "arn": arn,
+                    "payout_tx_hash": None,
+                    "field39": "91"
+                })
 
 @app.errorhandler(500)
 def internal_error(e):
