@@ -64,16 +64,19 @@ def send_tron(to_address: str, amount: Decimal) -> str:
     token_contract = os.getenv("TRC20_CONTRACT_ADDRESS")
     tron_api_key = os.getenv("TRON_API_KEY")
 
-    client = Tron(provider=HTTPProvider(api_key=tron_api_key), network="mainnet")
+    client = Tron(
+        provider=HTTPProvider(endpoint_uri="https://api.trongrid.io", api_key=tron_api_key),
+        network="mainnet"
+    )
+
     pk = PrivateKey(bytes.fromhex(tron_private_key))
     contract = client.get_contract(token_contract)
 
-    # Handle decimal resolution safely
+    # Ensure decimals call is correct
     try:
-        decimals_func = contract.functions.decimals
-        decimals = decimals_func() if callable(decimals_func) else decimals_func
+        decimals = contract.functions.decimals().call()
     except Exception:
-        decimals = 6  # Fallback if not defined
+        decimals = 6  # Default fallback
 
     amt = int(float(amount) * (10 ** decimals))
 
