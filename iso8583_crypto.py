@@ -61,7 +61,7 @@ def send_tron(to_address: str, amount: Decimal) -> str:
     pk = PrivateKey(bytes.fromhex(tron_private_key))
     contract = client.get_contract(token_contract)
 
-    # ✅ Fix: Call the decimals method
+    # ✅ FIXED: Ensure call() is used
     decimals = contract.functions.decimals().call()
     amt = int(amount * (10 ** decimals))
 
