@@ -5,14 +5,13 @@ from decimal import Decimal
 
 def process_crypto_payout(wallet: str, amount: Decimal, currency: str, network: str) -> str:
     network = network.upper()
-    
-    # Validate necessary environment variables before processing
+
     if network == "TRC20":
         for var in ["TRC20_PRIVATE_KEY", "TRC20_CONTRACT_ADDRESS", "TRON_API_KEY"]:
             if not os.getenv(var):
                 raise Exception(f"Missing environment variable: {var}")
         return send_tron(wallet, amount)
-    
+
     elif network == "ERC20":
         for var in ["INFURA_URL", "ERC20_PRIVATE_KEY", "ERC20_CONTRACT_ADDRESS"]:
             if not os.getenv(var):
@@ -24,7 +23,8 @@ def process_crypto_payout(wallet: str, amount: Decimal, currency: str, network: 
 
 
 def send_erc20(to_address: str, amount: Decimal) -> str:
-    from web3 import Web3  # Delay import for performance and memory
+    from web3 import Web3
+
     infura_url = os.getenv("INFURA_URL")
     private_key = os.getenv("ERC20_PRIVATE_KEY")
     token_address = os.getenv("ERC20_CONTRACT_ADDRESS")
@@ -68,8 +68,14 @@ def send_tron(to_address: str, amount: Decimal) -> str:
     pk = PrivateKey(bytes.fromhex(tron_private_key))
     contract = client.get_contract(token_contract)
 
-    decimals = contract.functions.decimals().call()
-    amt = int(amount * (10 ** decimals))
+    # Handle decimal resolution safely
+    try:
+        decimals_func = contract.functions.decimals
+        decimals = decimals_func() if callable(decimals_func) else decimals_func
+    except Exception:
+        decimals = 6  # Fallback if not defined
+
+    amt = int(float(amount) * (10 ** decimals))
 
     txn = (
         contract.functions.transfer(to_address, amt)
