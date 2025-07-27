@@ -7,6 +7,7 @@ from tronpy import Tron
 from tronpy.providers import HTTPProvider
 from tronpy.keys import PrivateKey
 
+
 def process_crypto_payout(wallet, amount: Decimal, currency, network):
     network = network.upper()
     if network == "TRC20":
@@ -15,6 +16,7 @@ def process_crypto_payout(wallet, amount: Decimal, currency, network):
         return send_erc20(wallet, amount)
     else:
         raise Exception("Unsupported payout network")
+
 
 def send_erc20(to_address, amount: Decimal):
     infura_url = os.getenv("INFURA_URL")
@@ -52,6 +54,7 @@ def send_erc20(to_address, amount: Decimal):
     tx_hash = web3.eth.send_raw_transaction(signed_tx.rawTransaction)
     return web3.to_hex(tx_hash)
 
+
 def send_tron(to_address, amount: Decimal):
     tron_private_key = os.getenv("TRC20_PRIVATE_KEY")
     token_contract = os.getenv("TRC20_CONTRACT_ADDRESS")
@@ -64,7 +67,10 @@ def send_tron(to_address, amount: Decimal):
     pk = PrivateKey(bytes.fromhex(tron_private_key))
     contract = client.get_contract(token_contract)
 
+    # ✅ Correct: Call decimals function properly
     decimals = contract.functions.decimals()
+    if callable(decimals):
+        decimals = decimals()
     amt = int(amount * (10 ** decimals))
 
     txn = (
@@ -77,9 +83,10 @@ def send_tron(to_address, amount: Decimal):
 
     result = txn.broadcast()
     if "txid" not in result:
-        raise Exception("TRON broadcast failed")
+        raise Exception(f"TRON broadcast failed: {result}")
 
     return result["txid"]
+
 
 def erc20_abi():
     return [
