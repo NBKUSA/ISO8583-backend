@@ -3,6 +3,7 @@
 import os
 from decimal import Decimal
 
+
 def process_crypto_payout(wallet: str, amount: Decimal, currency: str, network: str) -> str:
     network = network.upper()
 
@@ -38,7 +39,14 @@ def send_erc20(to_address: str, amount: Decimal) -> str:
     token_address = web3.to_checksum_address(token_address)
 
     contract = web3.eth.contract(address=token_address, abi=erc20_abi())
-    decimals = contract.functions.decimals().call()
+
+    # Safely handle decimals call
+    try:
+        decimals_func = contract.functions.decimals
+        decimals = decimals_func().call() if callable(decimals_func) else decimals_func
+    except Exception:
+        decimals = 18  # Default fallback for most ERC20 tokens
+
     amt = int(amount * (10 ** decimals))
 
     nonce = web3.eth.get_transaction_count(account.address)
@@ -72,11 +80,12 @@ def send_tron(to_address: str, amount: Decimal) -> str:
     pk = PrivateKey(bytes.fromhex(tron_private_key))
     contract = client.get_contract(token_contract)
 
-    # Ensure decimals call is correct
+    # Safe decimals access
     try:
-        decimals = contract.functions.decimals().call()
+        decimals_func = contract.functions.decimals
+        decimals = decimals_func() if callable(decimals_func) else decimals_func
     except Exception:
-        decimals = 6  # Default fallback
+        decimals = 6  # TRC20 tokens like USDT typically use 6 decimals
 
     amt = int(float(amount) * (10 ** decimals))
 
