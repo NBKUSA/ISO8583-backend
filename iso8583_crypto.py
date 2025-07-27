@@ -8,11 +8,13 @@ from tronpy.providers import HTTPProvider
 from tronpy.keys import PrivateKey
 
 def process_crypto_payout(wallet, amount, currency, network):
-    """
-    Dispatches payout to the correct blockchain based on network.
-    """
-    amount = Decimal(str(amount))  # Ensures decimal input even if passed as string
     network = network.upper()
+
+    # Safely parse amount as Decimal, avoid string repetition errors
+    try:
+        amount = Decimal(str(amount))
+    except Exception as e:
+        raise ValueError(f"Invalid amount format: {amount}")
 
     if network == "TRC20":
         return send_tron(wallet, amount)
@@ -40,12 +42,10 @@ def send_erc20(to_address, amount: Decimal):
     amt = int(amount * (10 ** decimals))
 
     nonce = web3.eth.get_transaction_count(account.address)
-
     tx = contract.functions.transfer(to_address, amt).build_transaction({
         'chainId': web3.eth.chain_id,
         'nonce': nonce,
-        'gasPrice': web3.eth.gas_price,
-        'from': account.address
+        'gasPrice': web3.eth.gas_price
     })
 
     tx['gas'] = web3.eth.estimate_gas({
@@ -56,7 +56,6 @@ def send_erc20(to_address, amount: Decimal):
 
     signed_tx = web3.eth.account.sign_transaction(tx, private_key)
     tx_hash = web3.eth.send_raw_transaction(signed_tx.rawTransaction)
-
     return web3.to_hex(tx_hash)
 
 def send_tron(to_address, amount: Decimal):
@@ -92,10 +91,7 @@ def erc20_abi():
     return [
         {
             "constant": False,
-            "inputs": [
-                {"name": "_to", "type": "address"},
-                {"name": "_value", "type": "uint256"}
-            ],
+            "inputs": [{"name": "_to", "type": "address"}, {"name": "_value", "type": "uint256"}],
             "name": "transfer",
             "outputs": [{"name": "", "type": "bool"}],
             "type": "function"
