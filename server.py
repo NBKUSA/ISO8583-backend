@@ -10,7 +10,7 @@ from iso8583_crypto import process_crypto_payout
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 
-DEBUG_MODE = True  # ✅ Set to False to use real payouts
+DEBUG_MODE = False  # ✅ Set to False to use real payouts
 
 @app.route('/')
 def home():
